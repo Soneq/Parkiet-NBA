@@ -646,7 +646,7 @@ function renderGames(){
   if (live.length) h += `<div class="section-title"><h2>Teraz</h2></div><div class="games">${live.map(gameRow).join('')}</div>`;
   h += `<div class="section-title"><h2>Ostatnie wyniki</h2>${done.length ? `<span class="note">${done.filter(g=>g.win).length}–${done.filter(g=>!g.win).length} w ost. ${done.length}</span>` : ''}</div>`;
   h += `<div class="games">${done.length ? done.map(gameRow).join('') : '<div class="empty">Sezon zasadniczy jeszcze się nie zaczął. Wyniki pojawią się tu po pierwszym meczu.</div>'}</div>`;
-  h += `<div class="section-title"><h2>Terminarz</h2><span class="note">czas polski</span></div>`;
+  h += `<div class="section-title"><h2>Terminarz</h2></div>`;
   h += `<div class="games">${next.length ? next.map(gameRow).join('') : '<div class="empty">Brak zaplanowanych meczów.</div>'}</div>`;
   h += `<p class="hint">Dotknij meczu: wynik pokaże statystyki zawodników, a nadchodzący mecz porównanie drużyn.</p>`;
   $('main').innerHTML = h;
@@ -680,15 +680,16 @@ function sbCard(g){
 function renderToday(){
   const d = S.day, games = S.days[d];
   let h = `<div class="dayhead"><button class="icon-btn" data-day="-1" aria-label="Poprzedni dzień">‹</button>
-    <h2>${esc(dayLabel(d))}<small>godziny meczów w czasie polskim</small></h2>
+    <h2>${esc(dayLabel(d))}</h2>
     <button class="icon-btn" data-day="1" aria-label="Następny dzień">›</button></div>`;
   if (d !== etToday()) h += `<button class="today-btn" data-day="0">Wróć do dzisiaj</button>`;
   if (!games) return void ($('main').innerHTML = h + `<div class="games">${'<div class="skeleton"></div>'.repeat(4)}</div>`);
   const mine = games.filter(g => S.followed.includes(g.home.id) || S.followed.includes(g.away.id));
   const rest = games.filter(g => !mine.includes(g));
   if (!games.length) h += `<div class="games" style="margin-top:12px"><div class="empty">Tego dnia nie ma meczów NBA.</div></div>`;
-  if (mine.length) h += `<div class="section-title"><h2>Twoje drużyny</h2></div><div class="sb-grid">${mine.map(sbCard).join('')}</div>`;
-  if (rest.length) h += `<div class="section-title"><h2>${mine.length ? 'Pozostałe mecze' : 'Wszystkie mecze'}</h2><span class="note">${games.length} ${games.length === 1 ? 'mecz' : (games.length % 10 >= 2 && games.length % 10 <= 4 && (games.length % 100 < 10 || games.length % 100 >= 20) ? 'mecze' : 'meczów')}</span></div><div class="sb-grid">${rest.map(sbCard).join('')}</div>`;
+  const count = n => `${n} ${n === 1 ? 'mecz' : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'mecze' : 'meczów')}`;
+  if (mine.length) h += `<div class="section-title"><h2>Twoje drużyny</h2><span class="note">${count(mine.length)}</span></div><div class="sb-grid">${mine.map(sbCard).join('')}</div>`;
+  if (rest.length) h += `<div class="section-title"><h2>${mine.length ? 'Pozostałe mecze' : 'Wszystkie mecze'}</h2><span class="note">${count(rest.length)}</span></div><div class="sb-grid">${rest.map(sbCard).join('')}</div>`;
   if (games.length) h += `<p class="hint">Dotknij meczu, aby zobaczyć szczegóły.</p>`;
   $('main').innerHTML = h;
   $('main').querySelectorAll('[data-day]').forEach(b => b.onclick = () => {

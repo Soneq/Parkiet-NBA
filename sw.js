@@ -1,6 +1,6 @@
 // Parkiet NBA service worker: offline app shell, last-known ESPN data, cached logos and fonts.
 // Bump VERSION whenever you upload a new index.html so phones pick up the change.
-const VERSION = 'parkiet-v2';
+const VERSION = 'parkiet-v3';
 const SHELL = ['./', './index.html', './manifest.webmanifest',
   './icons/apple-touch-icon.png', './icons/icon-192.png', './icons/icon-512.png', './icons/favicon-32.png'];
 
