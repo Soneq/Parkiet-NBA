@@ -1023,7 +1023,17 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && S.
 
 // Offline support + home-screen install (only when served over http/https, e.g. GitHub Pages)
 if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
-  navigator.serviceWorker.register('./sw.js').catch(() => {});
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then(reg => {
+    // Check for a new version whenever the app comes back to the foreground
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
+  }).catch(() => {});
+  // A new version took over: reload once so the screen shows it (not on the very first install)
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloaded || !$('gameBg').hidden || !$('sheetBg').hidden) return;
+    reloaded = true; location.reload();
+  });
 }
 window.addEventListener('online', () => renderAll(true));
 
