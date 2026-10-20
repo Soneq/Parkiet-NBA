@@ -541,6 +541,20 @@ async function loadStats(force){
   if (!r.players.some(p => p.gp > 0)) r = await fetchStatsSeason(cur - 1, force);
   S.stats = { players: r.players, year: r.year, fallback: r.year < cur };
 }
+// Early in a season ESPN only has stats for teams that have already played.
+// For a team without a game yet, fall back to its players' numbers from last season.
+const teamHasCur = id => !!S.stats?.players.some(p => String(p.teamId) === String(id) && p.gp > 0);
+async function ensurePrevStats(){
+  if (!S.stats || S.stats.fallback || S.statsPrev) return;
+  const r = await fetchStatsSeason(S.stats.year - 1);
+  S.statsPrev = { players: r.players, year: r.year };
+}
+function statsForTeam(id){
+  const mine = list => (list || []).filter(p => String(p.teamId) === String(id) && p.gp > 0);
+  const cur = mine(S.stats?.players);
+  if (cur.length || S.stats?.fallback || !S.statsPrev) return { players: cur, year: S.stats?.year, teamFallback: false };
+  return { players: mine(S.statsPrev.players), year: S.statsPrev.year, teamFallback: true };
+}
 
 // ---------- rendering ----------
 let lastCentered = null;
@@ -717,7 +731,7 @@ function renderLeaders(){
   const top = pool.sort((a,b) => b[cat] - a[cat]).slice(0, 25);
   let h = `<div class="section-title"><h2>Liderzy ligi</h2><div class="seg"><button data-mine="0" aria-pressed="${!S.leadMine}">Cała liga</button><button data-mine="1" aria-pressed="${S.leadMine}">Moje drużyny</button></div></div>`;
   h += `<div class="chiprow">${LEAD_CATS.map(c => `<button data-cat="${c[0]}" aria-pressed="${c[0] === cat}">${c[1]}</button>`).join('')}</div>`;
-  h += `<p class="note">Sezon ${seasonLabel(st.year)}${st.fallback ? ' (nowy jeszcze się nie zaczął)' : ''}. Liczą się zawodnicy z co najmniej 70% rozegranych meczów.</p>`;
+  h += `<p class="note">Sezon ${seasonLabel(st.year)}${st.fallback ? ` (ESPN nie ma jeszcze statystyk ${seasonLabel(st.year + 1)})` : ''}. Liczą się zawodnicy z co najmniej 70% rozegranych meczów.</p>`;
   if (!top.length) h += `<div class="games"><div class="empty">Brak zawodników spełniających kryteria.</div></div>`;
   else h += `<div class="leaders">${top.map((p, i) => {
     const t = S.byId[String(p.teamId)];
@@ -747,6 +761,8 @@ async function refreshGame(force){
     if (state === 'pre'){
       $('gameTitle').textContent = 'Przed meczem';
       await Promise.allSettled([S.standings ? null : loadStandings(), S.stats ? null : loadStats()]);
+      const ids = (j.header?.competitions?.[0]?.competitors || []).map(c => c.id);
+      if (ids.some(x => !teamHasCur(x))) await ensurePrevStats().catch(() => {});
       if (S.game === id) renderPreview(j);
     } else {
       $('gameTitle').textContent = state === 'in' ? 'Na żywo' : 'Statystyki meczu';
@@ -837,11 +853,11 @@ function renderBox(j){
 
 function teamLeaders(teamId){
   if (!S.stats) return null;
-  const ps = S.stats.players.filter(p => String(p.teamId) === String(teamId) && p.gp > 0);
+  const ts = statsForTeam(teamId); const ps = ts.players;
   if (!ps.length) return null;
   const maxGp = Math.max(...ps.map(p => p.gp)); const pool = ps.filter(p => p.gp >= maxGp * 0.4);
   const best = k => pool.slice().sort((x, y) => (y[k] ?? 0) - (x[k] ?? 0))[0];
-  return { pts: best('pts'), reb: best('reb'), ast: best('ast') };
+  return { pts: best('pts'), reb: best('reb'), ast: best('ast'), year: ts.year };
 }
 
 function renderPreview(j){
@@ -872,7 +888,9 @@ function renderPreview(j){
   const la = teamLeaders(a.id), lh = teamLeaders(h.id);
   if (la && lh){
     const pc = (p, k, r) => p ? `<div class="p ${r ? 'r' : ''}"><img src="${esc(p.img)}" alt="" loading="lazy"><div><b>${Number(p[k]).toFixed(1)}</b>${esc(p.name)}</div></div>` : '<div></div>';
-    out += `<div class="dh">Liderzy<small>średnie na mecz${S.stats.fallback ? ', sezon ' + seasonLabel(S.stats.year) : ''}</small></div><div class="cmp"><div class="lead-cmp">` +
+    const yrs = [...new Set([la.year, lh.year])];
+    const yrNote = yrs.length > 1 ? `, ${teamName(la.year < lh.year ? a.id : h.id)}: sezon ${seasonLabel(Math.min(...yrs))}` : (yrs[0] < seasonYearNow() ? ', sezon ' + seasonLabel(yrs[0]) : '');
+    out += `<div class="dh">Liderzy<small>średnie na mecz${yrNote}</small></div><div class="cmp"><div class="lead-cmp">` +
       [['pts','Punkty'],['reb','Zbiórki'],['ast','Asysty']].map(([k, l]) => `${pc(la[k], k)}<span class="lbl">${l}</span>${pc(lh[k], k, true)}`).join('') + `</div></div>`;
   }
   // Injuries
@@ -915,9 +933,11 @@ const COLS = [
 ];
 function renderPlayers(){
   const st = S.stats; if (!st) return skeleton();
-  const rows = st.players.filter(p => p.teamId == S.active && p.gp > 0).sort((a,b) => (b[S.sortKey] ?? -1) - (a[S.sortKey] ?? -1));
-  let h = `<div class="section-title"><h2>Statystyki zawodników</h2><span class="note">sezon ${seasonLabel(st.year)}, średnie na mecz</span></div>`;
-  if (st.fallback) h += `<p class="note">Sezon ${seasonLabel(st.year + 1)} jeszcze się nie zaczął, więc pokazuję poprzedni. Zawodnicy są przypisani do obecnych drużyn.</p>`;
+  const ts = statsForTeam(S.active);
+  const rows = ts.players.slice().sort((a,b) => (b[S.sortKey] ?? -1) - (a[S.sortKey] ?? -1));
+  let h = `<div class="section-title"><h2>Statystyki zawodników</h2><span class="note">sezon ${seasonLabel(ts.year)}, średnie na mecz</span></div>`;
+  if (ts.teamFallback) h += `<p class="note">Ta drużyna nie rozegrała jeszcze meczu w sezonie ${seasonLabel(st.year)}, więc pokazuję poprzedni sezon. Zawodnicy są przypisani do obecnych drużyn.</p>`;
+  else if (st.fallback) h += `<p class="note">ESPN nie ma jeszcze statystyk sezonu ${seasonLabel(st.year + 1)} (zwykle pojawiają się w nocy po pierwszych meczach), więc pokazuję poprzedni. Zawodnicy są przypisani do obecnych drużyn.</p>`;
   if (!rows.length){ $('main').innerHTML = h + '<div class="games"><div class="empty">Brak statystyk dla tej drużyny.</div></div>'; return; }
   h += `<div class="tablebox"><table><thead><tr><th class="sticky">Zawodnik</th>` +
     COLS.map(([k,l]) => `<th class="sortable ${k === S.sortKey ? 'sorted' : ''}" data-k="${k}">${l}</th>`).join('') + `</tr></thead><tbody>`;
@@ -958,7 +978,11 @@ async function renderAll(force){
     else if (S.tab === 'leaders'){ if (force || !S.stats) { skeleton(); await loadStats(force); } renderLeaders(); }
     else if (S.tab === 'games'){ if (force || !S.schedule[S.active]) { skeleton(); await loadSchedule(S.active, force); } renderGames(); }
     else if (S.tab === 'table'){ if (force || !S.standings) { skeleton(); await loadStandings(force); } renderTable(); }
-    else { if (force || !S.stats) { skeleton(); await loadStats(force); } renderPlayers(); }
+    else {
+      if (force || !S.stats) { skeleton(); await loadStats(force); }
+      if (!teamHasCur(S.active)) await ensurePrevStats().catch(() => {});
+      renderPlayers();
+    }
     S.updated = new Date();
     $('updated').textContent = navigator.onLine === false ? 'Offline: pokazuję ostatnie zapisane dane' : 'Zaktualizowano ' + fmtTime(S.updated);
     if (!S.standings) loadStandings().then(renderHero).catch(() => {}); // for hero facts
